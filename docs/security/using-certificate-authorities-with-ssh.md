@@ -56,7 +56,7 @@ authenticating/authorizing clients; in this guide, we will first focus on config
 servers to grant access to users based on certificates.
 
 > If you're not yet familiar with it, it's recommended that you read up on [Public Key
-> Cryptography](https://en.wikipedia.org/wiki/Public_Key_Cryptography)
+> Cryptography](https://en.wikipedia.org/wiki/Public_Key_Cryptography).
 
 If a server is configured to trust a certain CA, it can trust all keys signed by that CA; because it
 knows that at some point, you entered the CA password and made the decision to trust that key.
@@ -70,16 +70,8 @@ the public key contained in the certificate.
 
 Conversely, a client doesn't know if a server that it is connecting to is authentic. By presenting a
 certificate that has been signed by a CA that the client trusts and signing a challenge sent by the 
-client with the server's private key, the client can be sure that the server is trustable.
-
-This means, for example, that you don't need to confirm the authenticity of remote hosts anymore:
-
-```
-The authenticity of host 'host.example.net (192.0.2.32)' can't be established.
-RSA key fingerprint is SHA256:85Of5qSwAdERHsXteLNm3M6lCaPFwgq/6T35LcrmDaA.
-RSA key fingerprint is MD5:ac:17:9f:43:cd:80:9e:ae:83:5f:13:dc:3e:57:04:2d.
-Are you sure you want to continue connecting (yes/no)? 
-```
+client with the server's private key, the client can be sure that the server is trustable. (This
+means, for example, that you don't need to confirm the authenticity of remote hosts anymore.)
 
 ## Creating a CA and Signing Keys
 
@@ -124,26 +116,24 @@ Congratulations! You now have a valid certificate. If you want, you can take a l
 > Note: This section is here for completeness; it's not that different from just using normal public
 > keys for authentication.
 
-To authorize any user with a certificate signed by your CA to log in to an account on your server,
-copy the public CA key to the `~/.ssh/authorized_keys` file of the account to log into.
+To authorize any user with a valid certificate signed by your CA to log in to an account on your
+server, copy the public CA key to the `~/.ssh/authorized_keys` file of the account to log into.
 
 However, because it is a CA key, you have to prefix that line with `cert-authority`. It should look
 like this:
 
     cert-authority ecdsa-sha2-nistp521 AAAAE2VjZHNhLXNoYTItbmlzdHA1MjEAAAAIbmlzdHA1MjE...
 
-Now anyone with a certificate signed by your CA can sign in.
+Now anyone with a certificate signed by your CA can sign in. Well, almost anyone -- the list of
+principals on the certificate of that user has to contain the user name of the account! That's what
+the `-n` option of `ssh-keygen` is for; a *principal* is basically a scope that a certificate is
+valid for. For example, you might want to give yourself superuser powers *everywhere*, and sign your
+certificate with, among others, the principal *root*.
 
-Well, almost anyone -- the list of principals on the certificate of that user has to contain the
-user name of the account! That's what the `-n` option of `ssh-keygen` is for; a *principal* is
-basically a scope that a certificate is valid for. For example, you might want to give yourself
-superuser power *everywhere*, and sign your certificate with, among others, the principal
-*superroot*.
-
-To make `sshd` accept your certificate for any user account, you have to modify the
+To make `sshd` accept your certificate even without the right principal, you have to modify the
 `authorized_keys` file like this:
 
-    cert-authority,principals="superroot" ecdsa-sha2-nistp521 AAAAE2VjZHNhLXNoYTItbmlzdHA1MjEAAAAIbmlzdHA1MjE...
+    cert-authority,principals="some-principal-on-your-cert" ecdsa-sha2-nistp521 AAAAE2VjZHNhLXNoYTItbmlzdHA1MjEAAAAIbmlzdHA1MjE...
 
 > sshd is a bit picky; if there's some typo or syntax error, it will just ignore the
 > `authorized_keys` file.
@@ -172,8 +162,14 @@ Sep 24 20:17:35 fedora sshd[21839]: Accepted publickey for lbo from <IP> port 33
 
 
 On top of this, you can set the `AuthorizedPrincipalsFile` option to the path of a file that
-contains valid principals. If you set it to one file, e.g. `/etc/ssh/authorized_principals`, any
-certificate with a principal that appears in that file is able to log in to *any* account.
+contains valid principals of your certificate. If you set it to one file, e.g.
+`/etc/ssh/authorized_principals`, any certificate with a principal that appears in that file is able
+to log in to *any* account; for example, if you create a file with
+
+    superroot
+
+and use it as `AuthorizedPrincipalsFile`, then anyone with a certificate signed by your CA that
+contains the principal `superroot` will be able to sign in to *any* account!
 
 However, you can also set the option to a path like `%h/.ssh/principals`; `%h` will be replaced by
 the home directory of the user that someone tries to log in as. Based on this, you can create a
@@ -226,14 +222,13 @@ workings when enabling debug output on your SSH client:
 
 ```
 debug1: Server host certificate: ssh-rsa-cert-v01@openssh.com
-SHA256:L5AZVU9oz97zIN2i7tFoNaC+HOjv1TlFm8/7rMHShSQ, serial 5 ID "my_linode_server" CA ecdsa-sha2-nistp521
-SHA256:mJcstaUHXfwI0Ug+sLM+fAX6wQtX1iWmkiWG6Mwf9FE valid forever
+SHA256:eHQCETYZ0uAbLCRBxrRGU53HgSiYAvwGQsGHEF/IpHs, serial 5 ID "my_linode_server" CA ecdsa-sha2-nistp521
+SHA256:aX92/3uh5e0/GYoYvwC4eD612URo1MCz6OnARGPqwgU valid forever
 debug1: Host 'my.linode.example.com' is known and matches the RSA-CERT host certificate.
 ```
 
-> While this doesn't bring you much if you configure all your servers by hand, it certainly is
-> useful to give your coworkers an increased sense of security when they want to log onto different
-> machines that they may not have logged into before.
+> While this of much use if you configure all your servers by hand, it certainly is useful to make
+> your coworkers more comfortable logging onto different machines all owned by you or your company.
 
 ## Revoking Keys and Certificates
 
@@ -252,7 +247,7 @@ You can generate a KRL (Key Revocation List) using `ssh-keygen`:
 > `sha1` will revoke a key by its SHA1 sum, while `key` stores the entire key in the KRL.
 
 This will generate a KRL that contains the key with `some-key-identity` and all certificates with
-serial numbers between 12 and 18. Additionally, serves using that KRL will refuse clients presenting
+serial numbers between 12 and 18. Additionally, servers using that KRL will refuse clients presenting
 the specified key.
 
 In order to use the KRL on your server, just save the KRL on your server and add the following
